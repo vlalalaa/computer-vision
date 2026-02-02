@@ -1,0 +1,95 @@
+import cv2
+import numpy as np
+import shutil
+import os
+
+PROJECT_DIR = os.path.dirname(__file__)
+
+IMAGES_DIR = os.path.join(PROJECT_DIR, 'images')
+MODELS_DIR = os.path.join(PROJECT_DIR, 'models')
+
+OUT_DIR = os.path.join(PROJECT_DIR, 'out')
+PEOPLE_DIR = os.path.join(OUT_DIR, 'people')
+NO_PEOPLE_DIR = os.path.join(OUT_DIR, 'no_people')
+
+os.makedirs(PEOPLE_DIR, exist_ok=True)
+os.makedirs(NO_PEOPLE_DIR, exist_ok=True)
+
+PROTOTXT_PATH = os.path.join(MODELS_DIR, 'MobileNetSSD_deploy.prototxt.txt')
+MODEL_PATH = os.path.join(MODELS_DIR, 'MobileNetSSD_deploy.caffemodel')
+
+net = cv2.dnn.readNetFromCaffe(PROTOTXT_PATH, MODEL_PATH)
+
+CLASSES = ["background", "aeroplane", "bicycle", "bird", "boat", "bottle", "bus", "car", "cat", "chair", "cow",
+           "diningtable", "dog", "horse", "motorbike", "person", "pottedplant", "sheep", "sofa", "train", "tvmonitor"]
+
+PERSON_CLASS_ID = CLASSES.index("person")
+
+CONF_THRESHOLD = 0.4
+
+
+def detect_person(image):
+    (h, w) = image.shape[:2]
+    blob = cv2.dnn.blobFromImage(cv2.resize(image, (300, 300)), 0.007843, (300, 300), mean=(127.5, 127.5, 127.5))
+    net.setInput(blob)
+    detections = net.forward()
+
+    boxes = []
+
+    for i in range(detections.shape[2]):
+        confidence = detections[0, 0, i, 2]
+        class_id = detections[0, 0, i, 1]
+
+        if class_id == PERSON_CLASS_ID and confidence > CONF_THRESHOLD:
+            box = detections[0, 0, i, 3:7]
+            x1 = int(box[0] * w)
+            y1 = int(box[1] * h)
+            x2 = int(box[2] * w)
+            y2 = int(box[3] * h)
+            boxes.append((x1, y1, x2, y2))
+
+
+
+
+    return boxes
+
+
+allowed_extensions = ('.jpg', '.png', '.jpeg', '.bmp')
+count_people = 0
+count_no_people = 0
+
+
+files = os.listdir(IMAGES_DIR)
+
+for file in files:
+    if not file.lower().endswith(tuple(allowed_extensions)):
+        continue
+    in_path = os.path.join(IMAGES_DIR, file)
+    img = cv2.imread(in_path)
+
+    if img is None:
+        continue
+
+    found_boxes = detect_person(img)
+    a = len(found_boxes)
+    if a > 0:
+        out_path = os.path.join(PEOPLE_DIR, file)
+        shutil.copyfile(in_path, out_path)
+        count_people += 1
+
+        boxed = img.copy()
+        for box in found_boxes:
+            x1, y1, x2, y2 = box
+            cv2.rectangle(boxed, (x1, y1), (x2, y2), (255, 0, 0), 2)
+
+        cv2.putText(boxed, f"People count: {a}", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2)
+
+        boxed_path = os.path.join(PEOPLE_DIR, "boxed_" + file)
+        cv2.imwrite(boxed_path, boxed)
+
+    else:
+        count_no_people += 1
+        out_path = os.path.join(NO_PEOPLE_DIR, file)
+        shutil.copyfile(in_path, out_path)
+
+print(f'people: {count_people}, no_people: {count_no_people}')
